@@ -1,10 +1,11 @@
 import Foundation
+import TerminalMacCore
 
 /// A run of text with one style. Widths count characters, so keep to single-width glyphs.
 public struct Span {
     public var text: String
     public var style: String = ""
-    public init(_ text: String, _ style: String = "") { self.text = text; self.style = style }
+    public init(_ text: String, _ style: String = "") { self.text = terminalText(text); self.style = style }
 }
 
 extension Array where Element == Span {
@@ -17,7 +18,7 @@ extension Array where Element == Span {
         }
         return result
     }
-    public var rendered: String { map { $0.style.isEmpty ? $0.text : $0.style + $0.text + Theme.reset }.joined() }
+    public var rendered: String { map { $0.style.isEmpty ? terminalText($0.text) : $0.style + terminalText($0.text) + Theme.reset }.joined() }
 }
 
 /// Tokyo Night-flavoured palette. Respects NO_COLOR (https://no-color.org).

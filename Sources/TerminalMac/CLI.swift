@@ -194,6 +194,7 @@ final class CLI {
         var values = reply.values
         if verb == "screenshot" || verb == "snapshot" {
             guard values["image"] == imageName, let png = try mailbox.read(imageName, limit: 32 * 1024 * 1024) else { throw Failure("Invalid guest image response") }
+            _ = try GuestImage.pngSource(png)
             let output = URL(fileURLWithPath: ((args.options["output"] ?? "terminal-mac-\(name).png") as NSString).expandingTildeInPath)
             try png.write(to: output, options: .atomic)
             values["image"] = output.path

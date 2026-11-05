@@ -196,4 +196,4 @@ final class MachineRuntime: NSObject, VZVirtualMachineDelegate, NSWindowDelegate
     nonisolated func virtualMachine(_ virtualMachine: VZVirtualMachine, didStopWithError error: Error) { stderr(error.localizedDescription); exit(1) }
 }
 
-func stderr(_ message: String) { FileHandle.standardError.write(Data((message + "\n").utf8)) }
+func stderr(_ message: String) { FileHandle.standardError.write(Data((terminalText(message, allowNewlines: true) + "\n").utf8)) }

@@ -8,11 +8,11 @@ let package = Package(
     targets: [
         .target(name: "TerminalMacCore"),
         .target(name: "CPhoneShim"),
-        .target(name: "TerminalUI", dependencies: ["CPhoneShim"]),
+        .target(name: "TerminalUI", dependencies: ["CPhoneShim", "TerminalMacCore"]),
         .executableTarget(name: "TerminalMac", dependencies: ["TerminalMacCore", "TerminalUI", "CPhoneShim"],
             linkerSettings: [.linkedFramework("Virtualization"), .linkedFramework("AppKit"),
                              .linkedFramework("ScreenCaptureKit"), .linkedFramework("ApplicationServices"), .linkedFramework("ServiceManagement"), .linkedFramework("CoreMedia")]),
-        .testTarget(name: "TerminalMacCoreTests", dependencies: ["TerminalMacCore"])
+        .testTarget(name: "TerminalMacCoreTests", dependencies: ["TerminalMacCore", "TerminalUI"])
     ],
     swiftLanguageModes: [.v5]
 )

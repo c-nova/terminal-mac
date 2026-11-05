@@ -174,8 +174,8 @@ final class TerminalViewer {
                     guard let name = v["image"], [".bin", ".png"].contains(where: { name == "image-\(request.id.uuidString)\($0)" }),
                           let data = try mailbox.read(name, limit: 64 * 1024 * 1024) else { throw Failure("Invalid frame from the guest helper") }
                     if v["format"] == "bgra-lz4" {
-                        guard let width = Int(v["width"] ?? ""), let height = Int(v["height"] ?? ""), let stride = Int(v["bytesPerRow"] ?? ""),
-                              (1...8192).contains(width), (1...8192).contains(height), (width * 4...width * 4 + 1024).contains(stride) else { throw Failure("Invalid frame size") }
+                        guard let width = Int(v["width"] ?? ""), let height = Int(v["height"] ?? ""), let stride = Int(v["bytesPerRow"] ?? "") else { throw Failure("Invalid frame size") }
+                        _ = try GuestImage.pixelByteCount(width: width, height: height, bytesPerRow: stride)
                         since = Int(v["sequence"] ?? "") ?? -1
                         link = .live
                         renderer.submit(.pixels(data, width: width, height: height, bytesPerRow: stride))

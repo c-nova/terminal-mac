@@ -23,7 +23,7 @@ final class AgentServer {
     private static func schema(_ properties: [String: Any], required: [String] = []) -> [String: Any] {
         ["type": "object", "properties": properties, "required": required, "additionalProperties": false]
     }
-    private static let point: [String: Any] = ["type": "integer", "minimum": 0]
+    private static let point: [String: Any] = ["type": "integer", "minimum": 0, "maximum": 16383]
     private static let after: [String: Any] = ["type": "boolean", "description": "Also return a screenshot taken shortly after the action."]
     static let tools: [[String: Any]] = [
         ["name": "screenshot", "description": "Capture the virtual Mac's screen. Coordinates for other tools are pixels in this image.",
@@ -36,7 +36,7 @@ final class AgentServer {
         ["name": "drag", "description": "Press the left button at (x, y), drag to (toX, toY) and release. Selects text, moves windows and items.",
          "inputSchema": schema(["x": point, "y": point, "toX": point, "toY": point, "screenshot": after], required: ["x", "y", "toX", "toY"])],
         ["name": "scroll", "description": "Scroll at a point. Negative dy scrolls content down (like swiping up), positive dy scrolls up. Pixels, -1000…1000.",
-         "inputSchema": schema(["x": point, "y": point, "dy": ["type": "integer"], "dx": ["type": "integer"], "screenshot": after], required: ["x", "y", "dy"])],
+         "inputSchema": schema(["x": point, "y": point, "dy": ["type": "integer", "minimum": -1000, "maximum": 1000], "dx": ["type": "integer", "minimum": -1000, "maximum": 1000], "screenshot": after], required: ["x", "y", "dy"])],
         ["name": "type", "description": "Type literal text into the focused field. Use `key` for return, tab and shortcuts.",
          "inputSchema": schema(["text": ["type": "string"], "screenshot": after], required: ["text"])],
         ["name": "key", "description": "Press a key or chord: return, tab, escape, backspace, up, cmd+space, cmd+tab, cmd+c, cmd+shift+... Modifiers: cmd, ctrl, alt, shift.",
@@ -73,9 +73,9 @@ final class AgentServer {
     }
 
     private func call(_ tool: String, _ a: [String: Any]) async throws -> [[String: Any]] {
-        func int(_ key: String) throws -> String {
-            guard let value = a[key] as? Int ?? (a[key] as? Double).map({ Int($0) }) else { throw Failure("Missing integer '\(key)'") }
-            return String(value)
+        func int(_ key: String, range: ClosedRange<Int> = 0...16383) throws -> String {
+            do { return String(try jsonInteger(a[key], range: range)) }
+            catch { throw Failure("Invalid integer '\(key)'; expected \(range)") }
         }
         func string(_ key: String) throws -> String {
             guard let value = a[key] as? String, !value.isEmpty else { throw Failure("Missing '\(key)'") }
@@ -91,14 +91,14 @@ final class AgentServer {
         case "click":
             var base = ["x": try int("x"), "y": try int("y")]
             if a["button"] as? String == "right" { base["button"] = "right" }
-            let clicks = max(1, min(3, a["clicks"] as? Int ?? 1))
+            let clicks = try jsonInteger(a["clicks"] ?? 1, range: 1...3)
             // Each extra click continues the sequence, which macOS reads as a double or triple click.
             for count in 1...clicks { requests.append(Request(action: "click", arguments: count == 1 ? base : base.merging(["count": String(count)]) { $1 }, timeout: 10)) }
         case "move": requests = [Request(action: "move", arguments: ["x": try int("x"), "y": try int("y")], timeout: 10)]
         case "drag": requests = [Request(action: "drag", arguments: ["x": try int("x"), "y": try int("y"), "x2": try int("toX"), "y2": try int("toY")], timeout: 15)]
         case "scroll":
-            var arguments = ["x": try int("x"), "y": try int("y"), "dy": try int("dy")]
-            if a["dx"] != nil { arguments["dx"] = try int("dx") }
+            var arguments = ["x": try int("x"), "y": try int("y"), "dy": try int("dy", range: -1000...1000)]
+            if a["dx"] != nil { arguments["dx"] = try int("dx", range: -1000...1000) }
             requests = [Request(action: "scroll", arguments: arguments, timeout: 10)]
         case "type": requests = [Request(action: "type", arguments: ["text": try string("text")], timeout: 30)]
         case "key": requests = [Request(action: "key", arguments: ["key": try string("key")], timeout: 10)]
@@ -124,7 +124,7 @@ final class AgentServer {
         defer { mailbox.remove(imageName) }
         let reply = try await guest(request, mailbox: mailbox)
         guard reply.values["image"] == imageName, let png = try mailbox.read(imageName, limit: 64 * 1024 * 1024),
-              let source = CGImageSourceCreateWithData(png as CFData, nil), let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else {
+              let image = try? GuestImage.png(png) else {
             throw Failure("The guest helper returned an invalid screenshot")
         }
         let jpeg = NSMutableData()

@@ -1,9 +1,93 @@
 import XCTest
 import Foundation
 import Darwin
+import CoreGraphics
+import ImageIO
+import UniformTypeIdentifiers
 @testable import TerminalMacCore
+import TerminalUI
 
 final class CoreTests: XCTestCase {
+    func testGuestPixelsDecodeFoundationLZ4WithBoundedOutput() throws {
+        for (width, height, stride) in [(2, 2, 8), (2, 2, 12), (256, 128, 1024)] {
+            let original = Data((0..<(height * stride)).map { UInt8($0 % 251) })
+            let compressed = try (original as NSData).compressed(using: .lz4) as Data
+            XCTAssertEqual(try GuestImage.pixels(compressed, width: width, height: height, bytesPerRow: stride), original)
+            XCTAssertThrowsError(try GuestImage.pixels(Data(compressed.dropLast()), width: width, height: height, bytesPerRow: stride))
+            XCTAssertThrowsError(try GuestImage.pixels(compressed + Data([0]), width: width, height: height, bytesPerRow: stride))
+        }
+    }
+
+    func testGuestPixelsRejectBombsLengthMismatchesAndInvalidDimensions() throws {
+        let original = Data(repeating: 0, count: 8 * 1024 * 1024)
+        let bomb = try (original as NSData).compressed(using: .lz4) as Data
+        XCTAssertThrowsError(try GuestImage.pixels(bomb, width: 1, height: 1, bytesPerRow: 4))
+        let short = try (Data(repeating: 0, count: 4) as NSData).compressed(using: .lz4) as Data
+        XCTAssertThrowsError(try GuestImage.pixels(short, width: 2, height: 2, bytesPerRow: 8))
+        XCTAssertThrowsError(try GuestImage.pixels(Data(), width: 1, height: 1, bytesPerRow: 4))
+        XCTAssertThrowsError(try GuestImage.pixels(Data([1, 2, 3]), width: 1, height: 1, bytesPerRow: 4))
+        for (width, height, stride) in [(0, 1, 4), (-1, 1, 4), (Int.max, 1, 4), (1, Int.max, 4),
+                                      (8192, 8192, 32768), (1, 1, Int.max), (2, 2, 7)] {
+            XCTAssertThrowsError(try GuestImage.pixelByteCount(width: width, height: height, bytesPerRow: stride))
+        }
+        XCTAssertNoThrow(try GuestImage.pixelByteCount(width: 7680, height: 4320, bytesPerRow: 30720))
+    }
+
+    func testGuestPNGValidatesFormatAndDimensionsBeforeDecoding() throws {
+        func png(width: Int, height: Int) throws -> Data {
+            let context = try XCTUnwrap(CGContext(data: nil, width: width, height: height, bitsPerComponent: 8,
+                                                 bytesPerRow: width * 4, space: CGColorSpaceCreateDeviceRGB(),
+                                                 bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+            let image = try XCTUnwrap(context.makeImage())
+            let data = NSMutableData()
+            let destination = try XCTUnwrap(CGImageDestinationCreateWithData(data, UTType.png.identifier as CFString, 1, nil))
+            CGImageDestinationAddImage(destination, image, nil)
+            XCTAssertTrue(CGImageDestinationFinalize(destination))
+            return data as Data
+        }
+        let valid = try png(width: 32, height: 16)
+        let decoded = try GuestImage.png(valid)
+        XCTAssertEqual(decoded.width, 32)
+        XCTAssertEqual(decoded.height, 16)
+        XCTAssertThrowsError(try GuestImage.pngSource(png(width: 8193, height: 1)))
+        XCTAssertThrowsError(try GuestImage.png(Data()))
+        XCTAssertThrowsError(try GuestImage.png(Data("not an image".utf8)))
+        let gif = try XCTUnwrap(Data(base64Encoded: "R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7"))
+        XCTAssertThrowsError(try GuestImage.pngSource(gif))
+    }
+
+    func testTerminalTextRemovesControlSequencesAndPreservesUnicode() {
+        let payload = "\u{1b}]52;c;VEVTVA==\u{7}\u{9b}31m\r\n\t\0\u{7f}"
+        let safe = terminalText(payload)
+        XCTAssertFalse(safe.unicodeScalars.contains { $0.value < 32 || (127...159).contains($0.value) })
+        XCTAssertEqual(terminalText("hello 🌍 日本語"), "hello 🌍 日本語")
+        XCTAssertEqual(terminalText("first\nsecond\r", allowNewlines: true), "first\nsecond ")
+        XCTAssertEqual(terminalText("a\u{2028}b\u{2029}c"), "a b c")
+        XCTAssertEqual(Span(payload).text, safe)
+        XCTAssertEqual([Span(payload)].rendered, safe)
+        var changed = Span("initial")
+        changed.text = payload
+        XCTAssertEqual([changed].rendered, safe)
+        XCTAssertEqual([Span(payload, "\u{1b}[31m")].rendered, "\u{1b}[31m" + safe + Theme.reset)
+        XCTAssertFalse(Box.line(column: 1, row: 1, width: 80, [Span(payload)]).contains("\u{1b}]52;"))
+    }
+
+    func testJSONIntegerRejectsInvalidNumbersWithoutTrapping() throws {
+        for input in [NSNumber(value: 1e100), NSNumber(value: -1e100), NSNumber(value: Double.nan),
+                      NSNumber(value: Double.infinity), NSNumber(value: 1.5), NSNumber(value: true)] {
+            XCTAssertThrowsError(try jsonInteger(input, range: Int.min...Int.max))
+        }
+        XCTAssertThrowsError(try jsonInteger(nil, range: 0...16383))
+        XCTAssertThrowsError(try jsonInteger("1", range: 0...16383))
+        XCTAssertThrowsError(try jsonInteger(-1, range: 0...16383))
+        XCTAssertThrowsError(try jsonInteger(16384, range: 0...16383))
+        XCTAssertThrowsError(try jsonInteger(1001, range: -1000...1000))
+        XCTAssertEqual(try jsonInteger(0, range: 0...16383), 0)
+        XCTAssertEqual(try jsonInteger(NSNumber(value: 42.0), range: 0...16383), 42)
+        XCTAssertEqual(try jsonInteger(-1000, range: -1000...1000), -1000)
+        XCTAssertEqual(try jsonInteger(NSNumber(value: Int.max), range: Int.min...Int.max), Int.max)
+    }
+
     func testFirstRunPlansSkipDownloadAndInstallForExistingMacs() {
         let machine = Machine(name: "work", cpu: 4, memoryGiB: 4, diskGiB: 64, installed: true)
         XCTAssertEqual(SetupPlan(name: "work", machine: machine, hasLocalImage: false).steps,

@@ -1,4 +1,23 @@
 import Foundation
+import CoreFoundation
+
+public func terminalText(_ text: String, allowNewlines: Bool = false) -> String {
+    String(String.UnicodeScalarView(text.unicodeScalars.map { scalar in
+        if allowNewlines && scalar.value == 10 { return scalar }
+        if scalar.value < 32 || (127...159).contains(scalar.value) || scalar.value == 0x2028 || scalar.value == 0x2029 {
+            return UnicodeScalar(32)!
+        }
+        return scalar
+    }))
+}
+
+public func jsonInteger(_ input: Any?, range: ClosedRange<Int>) throws -> Int {
+    guard let number = input as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID(),
+          let value = Int(number.stringValue) ?? Int(exactly: number.doubleValue), range.contains(value) else {
+        throw Failure("Expected an integer in \(range)")
+    }
+    return value
+}
 
 public struct Failure: LocalizedError {
     public let message: String

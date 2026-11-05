@@ -30,6 +30,15 @@ Version 0.2.0 packaging checks:
 
 No macOS restore image was found in the user's Downloads/Desktop during a targeted search. No restore-image download, VM installation or boot was performed.
 
+## Security hardening checks (November 5, 2026)
+
+- Debug build and all 19 XCTest tests passed, including five new regression tests for terminal output, MCP integer conversion and guest image decoding.
+- Guest-provided display text removes C0/C1 controls; stderr preserves line feeds but removes other controls. Application-generated terminal styling is unchanged.
+- The MCP process returned errors for huge positive/negative numbers, fractional and boolean coordinates, excessive scroll values and huge click counts, then answered a subsequent ping without crashing.
+- Guest LZ4 frames decode into a fixed buffer sized from validated dimensions and stride. Tests cover Foundation LZ4 compatibility, padded rows, truncated/trailing data, short output and an 8 MiB compressed-bomb sample claiming a 1x1 frame.
+- PNG metadata is checked before pixel decoding: PNG only, one image, depth at most 8 bits, dimensions at most 8192 per axis and at most 7680x4320 total pixels. Encoded input is limited to 64 MiB; raw BGRA buffers are limited to 128 MiB. Viewer and MCP use this decoder; CLI screenshot export checks the same PNG metadata.
+- These are local protocol/decoder checks, not live guest isolation tests. Distribution-signature trust, NAT networking and shared-directory storage quotas are unchanged.
+
 ## Live guest acceptance (not yet completed)
 
 - Download a compatible Apple IPSW and create a VM; verify sparse disk storage.
