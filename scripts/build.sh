@@ -9,12 +9,14 @@ configuration="${CONFIGURATION:-release}"
 source scripts/release-config.sh
 identity="${SIGN_IDENTITY:-}"
 # A stable identity keeps the guest helper's Screen Recording and Accessibility approvals across
-# updates; ad-hoc signatures change with every build. SIGN_IDENTITY=- forces ad-hoc signing.
+# updates. Packaged apps must match the pinned certificate; ad-hoc signatures are rejected.
 if [[ -z "$identity" ]]; then
   if security find-identity -p codesigning 2>/dev/null | grep -qF "\"$SIGNING_NAME\""; then identity="$SIGNING_NAME"
-  else identity=-; echo "No \"$SIGNING_NAME\" identity; signing ad-hoc. Run scripts/create-signing-identity.sh to keep guest permissions across updates." >&2
+  else echo "No \"$SIGNING_NAME\" identity. Run scripts/create-signing-identity.sh and scripts/configure-signing.sh for a first build, or restore your existing private key." >&2; exit 1
   fi
 fi
+[[ "$identity" != - ]] || { echo 'Ad-hoc packages are not accepted by the pinned certificate policy.' >&2; exit 1; }
+source scripts/verify-signature.sh
 echo "Signing with: $identity"
 version="${VERSION:-0.2.0}"
 build_number="${BUILD_NUMBER:-6}"
@@ -58,9 +60,12 @@ mkdir -p "$app/Contents/Resources/skills"
 cp -R skills/terminal-mac "$app/Contents/Resources/skills/"
 make_plist "$guest/Contents/Info.plist" dev.terminal-mac.guest TerminalMacGuest
 make_plist "$app/Contents/Info.plist" dev.terminal-mac.host TerminalMac
+rm -rf "$app/Contents/Resources/terminal-mac_TerminalMacCore.bundle" "$guest/Contents/Resources/terminal-mac_TerminalMacCore.bundle"
+ditto "$binary_dir/terminal-mac_TerminalMacCore.bundle" "$app/Contents/Resources/terminal-mac_TerminalMacCore.bundle"
+ditto "$binary_dir/terminal-mac_TerminalMacCore.bundle" "$guest/Contents/Resources/terminal-mac_TerminalMacCore.bundle"
 # Guest has no Virtualization entitlement. Its guarded mode only controls the VM desktop.
 codesign --force --sign "$identity" "${sign_options[@]}" "$guest"
 codesign --force --sign "$identity" "${sign_options[@]}" --entitlements resources/terminal-mac.entitlements "$app"
 ln -sfn TerminalMac.app/Contents/MacOS/terminal-mac dist/terminal-mac
-codesign --verify --deep --strict "$app"
+bash scripts/verify-signature.sh "$app"
 echo "Built: $PWD/dist/terminal-mac"

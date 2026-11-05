@@ -6,7 +6,7 @@ let package = Package(
     platforms: [.macOS(.v14)],
     products: [.executable(name: "terminal-mac", targets: ["TerminalMac"])],
     targets: [
-        .target(name: "TerminalMacCore"),
+        .target(name: "TerminalMacCore", resources: [.copy("Signing")]),
         .target(name: "CPhoneShim"),
         .target(name: "TerminalUI", dependencies: ["CPhoneShim", "TerminalMacCore"]),
         .executableTarget(name: "TerminalMac", dependencies: ["TerminalMacCore", "TerminalUI", "CPhoneShim"],

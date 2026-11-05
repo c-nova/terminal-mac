@@ -14,10 +14,11 @@ done
 os_major="$(sw_vers -productVersion)"; os_major="${os_major%%.*}"
 [[ "$os_major" -ge 14 ]] || { echo 'terminal-mac requires macOS 14 or later.' >&2; exit 1; }
 source_dir="$(cd "$(dirname "$0")" && pwd)"
+source "$source_dir/verify-signature.sh"
 source_app="$source_dir/TerminalMac.app"
 if [[ ! -d "$source_app" && -d "$source_dir/../dist/TerminalMac.app" ]]; then source_app="$source_dir/../dist/TerminalMac.app"; fi
 [[ -d "$source_app" ]] || { echo 'TerminalMac.app is missing. Extract the complete release package first.' >&2; exit 1; }
-codesign --verify --deep --strict "$source_app"
+verify_package_signature "$source_app"
 version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$source_app/Contents/Info.plist")"
 build_number="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$source_app/Contents/Info.plist")"
 [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ && "$build_number" =~ ^[1-9][0-9]*$ ]] || { echo 'Invalid package version.' >&2; exit 1; }
@@ -39,10 +40,10 @@ fi
 if [[ ! -d "$destination" ]]; then
   staging="$(mktemp -d "$library/.install-XXXXXX")"
   ditto "$source_app" "$staging/TerminalMac.app"
-  codesign --verify --deep --strict "$staging/TerminalMac.app"
+  verify_package_signature "$staging/TerminalMac.app"
   mv "$staging" "$destination"; staging=""
 else
-  codesign --verify --deep --strict "$destination/TerminalMac.app"
+  verify_package_signature "$destination/TerminalMac.app"
 fi
 temporary_link="$prefix/bin/.terminal-mac-$$"
 ln -s "$destination/TerminalMac.app/Contents/MacOS/terminal-mac" "$temporary_link"

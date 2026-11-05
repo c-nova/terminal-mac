@@ -1,14 +1,19 @@
 #!/bin/bash
-# Creates a self-signed code-signing identity in your login keychain (default name: "Govijr Code Signing").
+# Creates a self-signed code-signing identity in your login keychain using the release configuration.
 #   bash scripts/create-signing-identity.sh ["Certificate Name"]
 # Releases signed with it carry no personal name, and macOS keeps the guest helper's Screen Recording
 # and Accessibility approvals across updates because the signing certificate stays the same.
 # Back it up (Keychain Access → My Certificates → Export) to sign future releases on another Mac:
 # a new certificate makes every user approve the guest permissions once more.
 set -euo pipefail
-name="${1:-Govijr Code Signing}"
+source "$(dirname "$0")/release-config.sh"
+name="${1:-$SIGNING_NAME}"
 if security find-identity -p codesigning | grep -qF "\"$name\""; then
   echo "\"$name\" already exists in your keychain."; exit 0
+fi
+if [[ -f "$(dirname "$0")/../Sources/TerminalMacCore/Signing/SigningFingerprint.txt" ]]; then
+  echo 'A signing fingerprint is already configured. Restore its private key from your backup; creating another certificate will not match.' >&2
+  exit 1
 fi
 work="$(mktemp -d "${TMPDIR:-/tmp}/signing-identity.XXXXXX")"
 # The private key only ever exists here and in the keychain.

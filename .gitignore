@@ -10,3 +10,4 @@ dist/
 *.p12
 *.p8
 *.cer
+Sources/TerminalMacCore/Signing/SigningFingerprint.txt

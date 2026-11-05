@@ -54,8 +54,10 @@ if [[ "$mode" = notarized ]]; then
   xcrun stapler validate "$payload/TerminalMac.app"
   spctl --assess --type execute --verbose=2 "$payload/TerminalMac.app"
 fi
-codesign --verify --deep --strict "$payload/TerminalMac.app"
+bash scripts/verify-signature.sh "$payload/TerminalMac.app"
 cp scripts/install.sh "$payload/install.sh"
+source scripts/verify-signature.sh
+sed "s/@SIGNING_SHA256@/$expected_certificate_sha256/g" scripts/verify-signature.sh > "$payload/verify-signature.sh"
 chmod +x "$payload/install.sh"
 cat > "$payload/README.txt" <<'TEXT'
 terminal-mac — a separate Mac for your agents

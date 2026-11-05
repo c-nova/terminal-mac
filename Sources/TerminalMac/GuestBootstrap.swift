@@ -8,6 +8,7 @@ enum GuestBootstrap {
         try GuestGuard.requireVirtualMac()
         guard Bundle.main.bundleIdentifier == "dev.terminal-mac.guest" else { return false }
         let source = Bundle.main.bundleURL.resolvingSymlinksInPath()
+        try SigningTrust.verify(source, identifier: "dev.terminal-mac.guest")
         let applications = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Applications")
         let destination = applications.appendingPathComponent("TerminalMacGuest.app")
         if source == destination.resolvingSymlinksInPath() { return false }
@@ -17,6 +18,7 @@ enum GuestBootstrap {
         if exists, installed?.bundleIdentifier != "dev.terminal-mac.guest" {
             throw Failure("The guest install location is occupied by a different app: \(destination.path)")
         }
+        if exists { try SigningTrust.verify(destination, identifier: "dev.terminal-mac.guest") }
         let keys = ["CFBundleVersion", "CFBundleShortVersionString"]
         let needsUpdate = keys.contains { installed?.object(forInfoDictionaryKey: $0) as? String != Bundle.main.object(forInfoDictionaryKey: $0) as? String }
         if !exists || needsUpdate {
@@ -31,6 +33,7 @@ enum GuestBootstrap {
             let staging = applications.appendingPathComponent(".TerminalMacGuest-\(UUID().uuidString).app")
             defer { try? FileManager.default.removeItem(at: staging) }
             try FileManager.default.copyItem(at: source, to: staging)
+            try SigningTrust.verify(staging, identifier: "dev.terminal-mac.guest")
             let backup = applications.appendingPathComponent(".TerminalMacGuest-backup-\(UUID().uuidString).app")
             if exists { try FileManager.default.moveItem(at: destination, to: backup) }
             do { try FileManager.default.moveItem(at: staging, to: destination) }
@@ -40,6 +43,7 @@ enum GuestBootstrap {
             }
             if exists { try? FileManager.default.removeItem(at: backup) }
         }
+        try SigningTrust.verify(destination, identifier: "dev.terminal-mac.guest")
         let configuration = NSWorkspace.OpenConfiguration()
         configuration.createsNewApplicationInstance = true
         _ = try await NSWorkspace.shared.openApplication(at: destination, configuration: configuration)
@@ -53,6 +57,8 @@ enum GuestBootstrap {
         guard Bundle.main.bundleURL.resolvingSymlinksInPath() != shared.resolvingSymlinksInPath(),
               let available = Bundle(url: shared)?.object(forInfoDictionaryKey: "CFBundleVersion") as? String, let newer = Int(available),
               let running = Int(Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? ""), newer > running else { return }
+          do { try SigningTrust.verify(shared, identifier: "dev.terminal-mac.guest") }
+          catch { stderr("Guest helper update rejected: \(error.localizedDescription)"); return }
         stderr("Updating the guest helper from build \(running) to \(newer)…")
         let configuration = NSWorkspace.OpenConfiguration()
         configuration.createsNewApplicationInstance = true

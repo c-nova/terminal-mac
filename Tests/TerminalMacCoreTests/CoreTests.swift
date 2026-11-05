@@ -8,6 +8,63 @@ import UniformTypeIdentifiers
 import TerminalUI
 
 final class CoreTests: XCTestCase {
+    func testSigningTrustLoadsPinnedFingerprintFromPackagedResources() throws {
+        let app = try signingFixture()
+        let bundle = try XCTUnwrap(Bundle(url: app))
+        if let configured = try? SigningTrust.pinnedFingerprint() {
+            XCTAssertEqual(try SigningTrust.pinnedFingerprint(in: bundle), configured)
+        } else {
+            XCTAssertThrowsError(try SigningTrust.pinnedFingerprint(in: bundle))
+        }
+        try FileManager.default.removeItem(at: app.appendingPathComponent("Contents/Resources/terminal-mac_TerminalMacCore.bundle"))
+        XCTAssertThrowsError(try SigningTrust.pinnedFingerprint(in: bundle))
+    }
+
+    func testSigningTrustRejectsUnsignedAndAdHocApps() throws {
+        let app = try signingFixture()
+        try codesign(["--remove-signature", app.path])
+        XCTAssertThrowsError(try SigningTrust.verify(app, identifier: "dev.terminal-mac.guest"))
+        try codesign(["--force", "--sign", "-", "--timestamp=none", app.path])
+        XCTAssertThrowsError(try SigningTrust.verify(app, identifier: "dev.terminal-mac.guest"))
+        XCTAssertThrowsError(try SigningTrust.verify(app, identifier: "invalid\" or true"))
+    }
+
+    func testSigningTrustAcceptsPinnedSignerAndRejectsTampering() throws {
+        guard let identity = ProcessInfo.processInfo.environment["TERMINAL_MAC_TEST_SIGNING_IDENTITY"], !identity.isEmpty else {
+            throw XCTSkip("Set TERMINAL_MAC_TEST_SIGNING_IDENTITY to test the pinned private key locally")
+        }
+        let app = try signingFixture()
+        try codesign(["--force", "--sign", identity, "--timestamp=none", app.path])
+        XCTAssertNoThrow(try SigningTrust.verify(app, identifier: "dev.terminal-mac.guest"))
+        XCTAssertThrowsError(try SigningTrust.verify(app, identifier: "dev.terminal-mac.host"))
+        try Data("changed".utf8).write(to: app.appendingPathComponent("Contents/Resources/payload.txt"))
+        XCTAssertThrowsError(try SigningTrust.verify(app, identifier: "dev.terminal-mac.guest"))
+    }
+
+    func signingFixture() throws -> URL {
+        let app = try temporary().appendingPathComponent("Guest.app")
+        let contents = app.appendingPathComponent("Contents")
+        try FileManager.default.createDirectory(at: contents.appendingPathComponent("MacOS"), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: contents.appendingPathComponent("Resources"), withIntermediateDirectories: true)
+        try FileManager.default.copyItem(at: Bundle.module.bundleURL, to: contents.appendingPathComponent("Resources/terminal-mac_TerminalMacCore.bundle"))
+        try FileManager.default.copyItem(atPath: "/usr/bin/true", toPath: contents.appendingPathComponent("MacOS/fixture").path)
+        let plist = ["CFBundleIdentifier": "dev.terminal-mac.guest", "CFBundleExecutable": "fixture", "CFBundlePackageType": "APPL"]
+        try PropertyListSerialization.data(fromPropertyList: plist, format: .xml, options: 0).write(to: contents.appendingPathComponent("Info.plist"))
+        try Data("original".utf8).write(to: contents.appendingPathComponent("Resources/payload.txt"))
+        return app
+    }
+
+    func codesign(_ arguments: [String]) throws {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/codesign")
+        process.arguments = arguments
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        try process.run()
+        process.waitUntilExit()
+        guard process.terminationStatus == 0 else { throw Failure("codesign fixture failed (\(process.terminationStatus))") }
+    }
+
     func testGuestPixelsDecodeFoundationLZ4WithBoundedOutput() throws {
         for (width, height, stride) in [(2, 2, 8), (2, 2, 12), (256, 128, 1024)] {
             let original = Data((0..<(height * stride)).map { UInt8($0 % 251) })

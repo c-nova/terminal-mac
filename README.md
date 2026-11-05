@@ -74,13 +74,15 @@ The first download may take time; packaging cannot eliminate downloading and ins
 ## Build from source
 
 ```sh
+bash scripts/create-signing-identity.sh   # once; creates your own keychain identity
+bash scripts/configure-signing.sh        # generates your local certificate fingerprint
 bash scripts/build.sh
 ./dist/terminal-mac doctor
 ```
 
 The build creates `dist/TerminalMac.app`, including `TerminalMacGuest.app`, and the `dist/terminal-mac` launcher. Virtualization needs the host executable's `com.apple.security.virtualization` entitlement; use the packaged launcher instead of the unsigned Swift build product.
 
-It is signed with the self-signed "Govijr Code Signing" identity when your keychain has it (`bash scripts/create-signing-identity.sh` makes one), and ad-hoc otherwise. A stable identity keeps the guest helper's permissions across rebuilds; ad-hoc builds need them granted again. [RELEASING.md](RELEASING.md) covers signing and publishing.
+Each source builder uses their own signing identity (default name: "TerminalMac Fork Code Signing"). No certificate or individual fingerprint is committed. The generated local fingerprint is embedded in signed apps and fixed in packaged installers, which reject other signers; ad-hoc packages are not accepted. Keep the same private key across updates. Users of prebuilt releases do not need to create a certificate. [RELEASING.md](RELEASING.md) covers configuration, backups and trust migration.
 
 ## Create your first Mac
 
